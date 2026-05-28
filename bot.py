@@ -3,7 +3,7 @@ import time
 import telebot
 from telebot import types
 import pg8000.dbapi
-from pg8000.converters import DEFAULT_CONVERTERS
+from urllib.parse import urlparse
 
 # ==================== 环境变量 ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -14,10 +14,9 @@ user_temp = {}
 pending_media = {}
 current_save_folder = None
 
-# ==================== Postgres 纯Python驱动 pg8000 ====================
+# ==================== Postgres 连接 ====================
 def get_db():
     try:
-        from urllib.parse import urlparse
         url = urlparse(DATABASE_URL)
         conn = pg8000.dbapi.connect(
             user=url.username,
