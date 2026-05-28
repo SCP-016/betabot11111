@@ -1,15 +1,13 @@
 services:
-  - type: worker          # 后台 worker，无需 HTTP 端口
+  - type: worker
     name: tg-media-bot
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
-        sync: false       # 在 Render 控制台手动填写
-      - key: DB_PATH
-        value: /var/data/media_bot.db
-    disk:
-      name: bot-data
-      mountPath: /var/data
-      sizeGB: 1           # 1 GB 持久化磁盘（免费计划不含磁盘，需 Starter+）
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
