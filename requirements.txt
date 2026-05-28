@@ -1,2 +1,0 @@
-python-telegram-bot==21.6
-libsql-experimental==0.0.38
