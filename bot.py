@@ -498,5 +498,12 @@ def main():
     logger.info("Bot 启动中…")
     app.run_polling(drop_pending_updates=True)
 
+# 修复 Python 3.10+ 事件循环错误
 if __name__ == "__main__":
+    import asyncio
+    # 修复 event loop 错误
+    try:
+        asyncio.set_event_loop(asyncio.new_event_loop())
+    except:
+        pass
     main()
