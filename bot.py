@@ -9,6 +9,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 user_temp = {}
+pending_media = {}  # 修复按钮超长问题
 
 # ==================== 数据库 ====================
 def get_db():
@@ -147,16 +148,19 @@ def rename_done(message):
     except:
         pass
 
-# ==================== 保存媒体 ====================
+# ==================== 保存媒体（修复按钮超长）====================
 @bot.message_handler(content_types=["photo", "video"])
 def save_media(message):
     try:
+        # 先把文件存在临时字典，不塞进按钮！
         if message.photo:
             file_id = message.photo[-1].file_id
             typ = "photo"
         else:
             file_id = message.video.file_id
             typ = "video"
+
+        pending_media[message.from_user.id] = {"fid": file_id, "type": typ}
 
         db = get_db()
         folders = db.execute("SELECT id,name FROM folders").fetchall()
@@ -168,25 +172,33 @@ def save_media(message):
 
         kb = types.InlineKeyboardMarkup(row_width=1)
         for f in folders:
-            kb.add(types.InlineKeyboardButton(f"📁 {f['name']}", callback_data=f"save_{file_id}_{typ}_{f['id']}"))
+            kb.add(types.InlineKeyboardButton(f"📁 {f['name']}", callback_data=f"sel_{f['id']}"))
         
         bot.send_message(message.chat.id, "✅ 保存到：", reply_markup=kb)
     except Exception as e:
         print(f"保存媒体错误: {e}")
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("save_"))
+@bot.callback_query_handler(func=lambda c: c.data.startswith("sel_"))
 def confirm_save(call):
     try:
         bot.answer_callback_query(call.id)
-        parts = call.data.split("_")
-        fid = parts[1]
-        typ = parts[2]
-        folder_id = parts[3]
+        folder_id = call.data.split("_")[1]
+        user_id = call.from_user.id
+
+        if user_id not in pending_media:
+            bot.edit_message_text("❌ 媒体已过期", call.message.chat.id, call.message.id, reply_markup=main_menu())
+            return
+
+        data = pending_media[user_id]
+        file_id = data["fid"]
+        typ = data["type"]
 
         db = get_db()
-        db.execute("INSERT INTO media (file_id,file_type,folder_id) VALUES (?,?,?)", [fid, typ, folder_id])
+        db.execute("INSERT INTO media (file_id,file_type,folder_id) VALUES (?,?,?)", [file_id, typ, folder_id])
         db.commit()
         db.close()
+
+        del pending_media[user_id]
         bot.edit_message_text("✅ 保存成功", call.message.chat.id, call.message.id, reply_markup=main_menu())
     except:
         pass
