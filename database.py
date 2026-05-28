@@ -1,13 +1,12 @@
 import os
 import sqlite3
 
-# 本地运行用 bot.db，Render 上自动用本地文件（不再连 Turso）
-# 这样 100% 不报错！
+# 本地数据库（100%稳定）
 conn = sqlite3.connect("bot.db", check_same_thread=False)
-cur = conn.cursor()
 conn.row_factory = sqlite3.Row
+cur = conn.cursor()
 
-# === 建表（你原来的结构） ===
+# 建表
 cur.execute('''
 CREATE TABLE IF NOT EXISTS folders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,11 +27,10 @@ CREATE TABLE IF NOT EXISTS media (
 ''')
 conn.commit()
 
-# === 你的原版 Database 类，100% 不变！===
 class Database:
     def __init__(self):
         self.conn = conn
-        self.cur = cur
+        self.cur = conn.cursor()
 
     def create_folder(self, name):
         try:
@@ -46,6 +44,7 @@ class Database:
         self.cur.execute("SELECT 1 FROM folders WHERE name = ?", (name,))
         return self.cur.fetchone() is not None
 
+    # ✅ 修复这里！！！
     def get_all_folders(self):
         self.cur.execute("SELECT * FROM folders ORDER BY name")
         return [dict(row) for row in self.cur.fetchall()]
