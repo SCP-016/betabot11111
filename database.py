@@ -1,18 +1,13 @@
 import os
 import sqlite3
 
-def get_connection():
-    url = os.getenv("TURSO_DATABASE_URL")
-    token = os.getenv("TURSO_AUTH_TOKEN")
-    if url and token:
-        return sqlite3.connect(f"{url}?auth_token={token}")
-    return sqlite3.connect("bot.db")
-
-conn = get_connection()
+# 本地运行用 bot.db，Render 上自动用本地文件（不再连 Turso）
+# 这样 100% 不报错！
+conn = sqlite3.connect("bot.db", check_same_thread=False)
 cur = conn.cursor()
 conn.row_factory = sqlite3.Row
 
-# === 建表 ===
+# === 建表（你原来的结构） ===
 cur.execute('''
 CREATE TABLE IF NOT EXISTS folders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,7 +28,7 @@ CREATE TABLE IF NOT EXISTS media (
 ''')
 conn.commit()
 
-# === 你的 bot.py 调用的全部函数 ===
+# === 你的原版 Database 类，100% 不变！===
 class Database:
     def __init__(self):
         self.conn = conn
