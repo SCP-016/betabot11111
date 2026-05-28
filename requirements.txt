@@ -1,2 +1,2 @@
-python-telegram-bot==21.5
+pyTelegramBotAPI==4.19.0
 libsql_client
