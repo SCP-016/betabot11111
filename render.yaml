@@ -1,19 +1,13 @@
 services:
   - type: web
-    name: tg-media-bot
-    runtime: python
+    name: media-bot
+    env: python
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
-        sync: false          # set manually in Render dashboard
+        sync: false
       - key: TURSO_DATABASE_URL
         sync: false
       - key: TURSO_AUTH_TOKEN
         sync: false
-      - key: WEBHOOK_URL
-        sync: false          # e.g. https://tg-media-bot.onrender.com/telegram
-      - key: WEBHOOK_SECRET
-        generateValue: true
-      - key: PORT
-        value: "10000"
