@@ -2,8 +2,8 @@ import os
 import time
 import telebot
 from telebot import types
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import pg8000.dbapi
+from pg8000.converters import DEFAULT_CONVERTERS
 
 # ==================== 环境变量 ====================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -14,14 +14,29 @@ user_temp = {}
 pending_media = {}
 current_save_folder = None
 
-# ==================== Postgres 数据库 ====================
+# ==================== Postgres 纯Python驱动 pg8000 ====================
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    try:
+        from urllib.parse import urlparse
+        url = urlparse(DATABASE_URL)
+        conn = pg8000.dbapi.connect(
+            user=url.username,
+            password=url.password,
+            host=url.hostname,
+            port=url.port,
+            database=url.path[1:],
+            timeout=10
+        )
+        return conn
+    except Exception as e:
+        print("数据库连接失败:", e)
+        return None
 
 def init_db():
     try:
         conn = get_db()
+        if not conn:
+            return
         cur = conn.cursor()
         cur.execute('''
         CREATE TABLE IF NOT EXISTS folders (
@@ -41,7 +56,7 @@ def init_db():
         cur.close()
         conn.close()
     except Exception as e:
-        print("数据库初始化错误:", e)
+        print("初始化表错误:", e)
 
 # ==================== 菜单 ====================
 def main_menu():
@@ -78,12 +93,12 @@ def cmd_setfolder(message):
         return
     try:
         conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = conn.cursor()
         cur.execute("SELECT name FROM folders WHERE id=%s", (current_save_folder,))
         row = cur.fetchone()
         cur.close()
         conn.close()
-        bot.send_message(message.chat.id, f"✅ 当前默认存储文件夹：{row['name']}")
+        bot.send_message(message.chat.id, f"✅ 当前默认存储文件夹：{row[0]}")
     except:
         bot.send_message(message.chat.id, "❌ 查询失败")
 
@@ -103,7 +118,7 @@ def cmd_getallvideo(message):
         return
     try:
         conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = conn.cursor()
         cur.execute("SELECT file_id FROM media WHERE folder_id=%s AND file_type='video'", (current_save_folder,))
         videos = cur.fetchall()
         cur.close()
@@ -114,7 +129,7 @@ def cmd_getallvideo(message):
         bot.send_message(message.chat.id, f"🎬 开始发送全部 {len(videos)} 个视频...")
         for v in videos:
             try:
-                bot.send_video(message.chat.id, v['file_id'])
+                bot.send_video(message.chat.id, v[0])
                 time.sleep(0.6)
             except:
                 continue
@@ -127,8 +142,8 @@ def list_folders_msg(chat_id):
     global current_save_folder
     try:
         conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT * FROM folders")
+        cur = conn.cursor()
+        cur.execute("SELECT id, name FROM folders")
         folders = cur.fetchall()
         cur.close()
         conn.close()
@@ -139,8 +154,8 @@ def list_folders_msg(chat_id):
             return
 
         for f in folders:
-            mark = "【默认】" if current_save_folder == f['id'] else ""
-            kb.add(types.InlineKeyboardButton(f"{mark}📁 {f['name']}", callback_data=f"open_{f['id']}"))
+            mark = "【默认】" if current_save_folder == f[0] else ""
+            kb.add(types.InlineKeyboardButton(f"{mark}📁 {f[1]}", callback_data=f"open_{f[0]}"))
         kb.add(types.InlineKeyboardButton("🔙 返回", callback_data="back_main"))
         bot.send_message(chat_id, "📂 文件夹列表（打开即设为默认保存目录）", reply_markup=kb)
     except:
@@ -165,21 +180,22 @@ def open_folder(call):
         current_save_folder = fid
 
         conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = conn.cursor()
         cur.execute("SELECT name FROM folders WHERE id=%s", (fid,))
         folder = cur.fetchone()
-        name = folder['name']
-        cur.execute("SELECT id,file_type FROM media WHERE folder_id=%s", (fid,))
+        name = folder[0]
+
+        cur.execute("SELECT id, file_type FROM media WHERE folder_id=%s", (fid,))
         media = cur.fetchall()
         cur.close()
         conn.close()
 
         kb = types.InlineKeyboardMarkup(row_width=2)
         for m in media:
-            icon = "🖼️" if m['file_type'] == "photo" else "🎥"
+            icon = "🖼️" if m[1] == "photo" else "🎥"
             kb.row(
-                types.InlineKeyboardButton(f"{icon} 媒体", callback_data=f"show_{m['id']}"),
-                types.InlineKeyboardButton("🗑️ 删除", callback_data=f"delm_{m['id']}")
+                types.InlineKeyboardButton(f"{icon} 媒体", callback_data=f"show_{m[0]}"),
+                types.InlineKeyboardButton("🗑️ 删除", callback_data=f"delm_{m[0]}")
             )
         kb.add(types.InlineKeyboardButton("🎬 一次性发送全部视频", callback_data=f"send_all_video_{fid}"))
         kb.add(
@@ -199,7 +215,7 @@ def send_all_video_btn(call):
         bot.answer_callback_query(call.id)
         fid = call.data.split("_")[-1]
         conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = conn.cursor()
         cur.execute("SELECT file_id FROM media WHERE folder_id=%s AND file_type='video'", (fid,))
         videos = cur.fetchall()
         cur.close()
@@ -210,7 +226,7 @@ def send_all_video_btn(call):
         bot.send_message(call.message.chat.id, f"🎬 开始发送 {len(videos)} 个视频...")
         for v in videos:
             try:
-                bot.send_video(call.message.chat.id, v['file_id'])
+                bot.send_video(call.message.chat.id, v[0])
                 time.sleep(0.6)
             except:
                 continue
@@ -284,7 +300,7 @@ def save_media(message):
         if current_save_folder:
             conn = get_db()
             cur = conn.cursor()
-            cur.execute("INSERT INTO media (file_id,file_type,folder_id) VALUES (%s,%s,%s)", (file_id, typ, current_save_folder))
+            cur.execute("INSERT INTO media (file_id, file_type, folder_id) VALUES (%s, %s, %s)", (file_id, typ, current_save_folder))
             conn.commit()
             cur.close()
             conn.close()
@@ -293,8 +309,8 @@ def save_media(message):
 
         pending_media[message.from_user.id] = {"fid": file_id, "type": typ}
         conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT id,name FROM folders")
+        cur = conn.cursor()
+        cur.execute("SELECT id, name FROM folders")
         folders = cur.fetchall()
         cur.close()
         conn.close()
@@ -305,7 +321,7 @@ def save_media(message):
 
         kb = types.InlineKeyboardMarkup(row_width=1)
         for f in folders:
-            kb.add(types.InlineKeyboardButton(f"📁 {f['name']}", callback_data=f"sel_{f['id']}"))
+            kb.add(types.InlineKeyboardButton(f"📁 {f[1]}", callback_data=f"sel_{f[0]}"))
         bot.send_message(message.chat.id, "✅ 请选择保存文件夹", reply_markup=kb)
     except Exception as e:
         print(f"保存媒体错误: {e}")
@@ -327,7 +343,7 @@ def confirm_save(call):
 
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("INSERT INTO media (file_id,file_type,folder_id) VALUES (%s,%s,%s)", (file_id, typ, folder_id))
+        cur.execute("INSERT INTO media (file_id, file_type, folder_id) VALUES (%s, %s, %s)", (file_id, typ, folder_id))
         conn.commit()
         cur.close()
         conn.close()
