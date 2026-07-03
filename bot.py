@@ -74,11 +74,11 @@ def start(message):
     try:
         text = "📸 媒体分类机器人\n" \
                "▸ 打开文件夹自动设为默认存储目录\n" \
-               "▸ 收到视频自动存入当前默认文件夹\n\n" \
+               "▸ 收到视频/图片自动存入当前默认文件夹\n\n" \
                "可用指令：\n" \
                "/setfolder - 查看当前默认文件夹\n" \
                "/clearfolder - 取消默认文件夹\n" \
-               "/getallvideo - 取出默认文件夹全部视频"
+               "/getallvideo - 取出默认文件夹全部视频（不含图片）"
         bot.send_message(message.chat.id, text, reply_markup=main_menu())
     except:
         pass
@@ -106,9 +106,9 @@ def cmd_setfolder(message):
 def cmd_clearfolder(message):
     global current_save_folder
     current_save_folder = None
-    bot.send_message(message.chat.id, "✅ 已取消默认存储文件夹，视频不再自动保存")
+    bot.send_message(message.chat.id, "✅ 已取消默认存储文件夹，媒体不再自动保存")
 
-# 取出默认文件夹所有视频
+# 取出默认文件夹所有视频（保留原有逻辑，只发视频）
 @bot.message_handler(commands=["getallvideo"])
 def cmd_getallvideo(message):
     global current_save_folder
@@ -196,18 +196,19 @@ def open_folder(call):
                 types.InlineKeyboardButton(f"{icon} 媒体", callback_data=f"show_{m[0]}"),
                 types.InlineKeyboardButton("🗑️ 删除", callback_data=f"delm_{m[0]}")
             )
-        kb.add(types.InlineKeyboardButton("🎬 一次性发送全部视频", callback_data=f"send_all_video_{fid}"))
+        # 修改按钮文字，说明会同时发图片+视频
+        kb.add(types.InlineKeyboardButton("🖼️🎬 一次性发送全部图片+视频", callback_data=f"send_all_video_{fid}"))
         kb.add(
             types.InlineKeyboardButton("✏️ 重命名", callback_data=f"ren_{fid}"),
             types.InlineKeyboardButton("🗑️ 删除文件夹", callback_data=f"delf_{fid}")
         )
         kb.add(types.InlineKeyboardButton("🔙 返回", callback_data="list_folders"))
 
-        bot.edit_message_text(f"📁 {name}\n✅ 已设为默认存储文件夹，视频将自动存入", call.message.chat.id, call.message.id, reply_markup=kb)
+        bot.edit_message_text(f"📁 {name}\n✅ 已设为默认存储文件夹，图片/视频将自动存入", call.message.chat.id, call.message.id, reply_markup=kb)
     except:
         pass
 
-# 按钮取出当前文件夹全部视频
+# 按钮取出当前文件夹全部图片+视频（修改核心逻辑）
 @bot.callback_query_handler(func=lambda c: c.data.startswith("send_all_video_"))
 def send_all_video_btn(call):
     try:
@@ -215,23 +216,30 @@ def send_all_video_btn(call):
         fid = call.data.split("_")[-1]
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT file_id FROM media WHERE folder_id=%s AND file_type='video'", (fid,))
-        videos = cur.fetchall()
+        # 去掉 file_type='video'，查询该文件夹所有媒体（图片+视频）
+        cur.execute("SELECT file_id, file_type FROM media WHERE folder_id=%s", (fid,))
+        all_media = cur.fetchall()
         cur.close()
         conn.close()
-        if not videos:
-            bot.send_message(call.message.chat.id, "❌ 该文件夹暂无视频")
+        if not all_media:
+            bot.send_message(call.message.chat.id, "❌ 该文件夹暂无图片和视频")
             return
-        bot.send_message(call.message.chat.id, f"🎬 开始发送 {len(videos)} 个视频...")
-        for v in videos:
+        bot.send_message(call.message.chat.id, f"🖼️🎬 开始发送 {len(all_media)} 个媒体（图片+视频）...")
+        for item in all_media:
+            file_id, ftype = item
             try:
-                bot.send_video(call.message.chat.id, v[0])
+                if ftype == "photo":
+                    bot.send_photo(call.message.chat.id, file_id)
+                else:
+                    bot.send_video(call.message.chat.id, file_id)
                 time.sleep(0.6)
-            except:
+            except Exception as e:
+                print("发送单个媒体失败：", e)
                 continue
-        bot.send_message(call.message.chat.id, "✅ 发送完成")
-    except:
-        pass
+        bot.send_message(call.message.chat.id, "✅ 全部图片、视频发送完成")
+    except Exception as e:
+        print("批量发送媒体报错：", e)
+        bot.send_message(call.message.chat.id, "❌ 发送失败")
 
 # ==================== 创建文件夹 ====================
 @bot.callback_query_handler(func=lambda c: c.data == "create_folder")
